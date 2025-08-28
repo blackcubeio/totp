@@ -50,7 +50,7 @@ class TotpTest extends \Codeception\Test\Unit
     public function testSetKeyThrowsExceptionForEmptyKey()
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage("Key for type 'test' cannot be empty");
+        $this->expectExceptionMessage("Key for identifier 'test' cannot be empty");
 
         $this->totp->setKey('test', '');
     }
@@ -77,7 +77,7 @@ class TotpTest extends \Codeception\Test\Unit
     public function testGenerateThrowsExceptionForUnknownKey()
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage("Key not found for type 'unknown'");
+        $this->expectExceptionMessage("Key not found for identifier 'unknown'");
 
         $this->totp->generate('unknown');
     }
@@ -101,7 +101,7 @@ class TotpTest extends \Codeception\Test\Unit
     public function testValidateThrowsExceptionForUnknownKey()
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage("Key not found for type 'unknown'");
+        $this->expectExceptionMessage("Key not found for identifier 'unknown'");
 
         $this->totp->validate('unknown', '123456');
     }

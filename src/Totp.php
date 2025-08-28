@@ -109,32 +109,32 @@ class Totp
     }
 
     /**
-     * Set a key for a specific type
+     * Set a key for a specific identifier
      *
-     * @param string $type Key type identifier
+     * @param string $keyIdentifier Key identifier
      * @param string $key Base32 encoded key
      * @return void
      * @throws InvalidArgumentException When key is empty
      */
-    public function setKey(string $type, string $key): void
+    public function setKey(string $keyIdentifier, string $key): void
     {
         if (empty($key)) {
-            throw new InvalidArgumentException("Key for type '{$type}' cannot be empty");
+            throw new InvalidArgumentException("Key for identifier '{$keyIdentifier}' cannot be empty");
         }
-        $this->keys[$type] = $key;
+        $this->keys[$keyIdentifier] = $key;
     }
 
     /**
      * Generate a TOTP code
      *
-     * @param string $type Key type to use for generation
+     * @param string $keyIdentifier Key identifier to use for generation
      * @param string|null $derivationParam Optional parameter for key derivation
      * @return string Generated TOTP code
      * @throws InvalidArgumentException When key type is not found
      */
-    public function generate(string $type, ?string $derivationParam = null): string
+    public function generate(string $keyIdentifier, ?string $derivationParam = null): string
     {
-        $key = $this->getCompositeKey($type, $derivationParam);
+        $key = $this->getCompositeKey($keyIdentifier, $derivationParam);
         $counter = $this->getCounter();
         return $this->generateTOTP($key, $counter, $this->length);
     }
@@ -142,15 +142,15 @@ class Totp
     /**
      * Validate a TOTP token
      *
-     * @param string $type Key type to use for validation
+     * @param string $keyIdentifier Key identifier to use for validation
      * @param string $token TOTP token to validate
      * @param string|null $derivationParam Optional parameter for key derivation
      * @return bool True if token is valid, false otherwise
-     * @throws InvalidArgumentException When key type is not found
+     * @throws InvalidArgumentException When key identifier is not found
      */
-    public function validate(string $type, string $token, ?string $derivationParam = null): bool
+    public function validate(string $keyIdentifier, string $token, ?string $derivationParam = null): bool
     {
-        $key = $this->getCompositeKey($type, $derivationParam);
+        $key = $this->getCompositeKey($keyIdentifier, $derivationParam);
         $currentCounter = $this->getCounter();
 
         // Check within the defined time window
@@ -177,18 +177,18 @@ class Totp
     /**
      * Get the composite key for TOTP generation
      *
-     * @param string $type Key type
+     * @param string $keyIdentifier Key identifier
      * @param string|null $derivationParam Optional derivation parameter
      * @return string Binary key data
-     * @throws InvalidArgumentException When key type is not found
+     * @throws InvalidArgumentException When key identifier is not found
      */
-    private function getCompositeKey(string $type, ?string $derivationParam = null): string
+    private function getCompositeKey(string $keyIdentifier, ?string $derivationParam = null): string
     {
-        if (!isset($this->keys[$type])) {
-            throw new InvalidArgumentException("Key not found for type '{$type}'");
+        if (!isset($this->keys[$keyIdentifier])) {
+            throw new InvalidArgumentException("Key not found for identifier '{$keyIdentifier}'");
         }
 
-        $baseKey = $this->keys[$type];
+        $baseKey = $this->keys[$keyIdentifier];
 
         // Decode base32 key to buffer
         $keyBuffer = $this->decodeBase32($baseKey);
