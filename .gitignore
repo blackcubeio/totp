@@ -1,0 +1,26 @@
+## Codeception
+tests/_output
+tests/_support
+
+## IDE
+.idea
+*.iml
+
+## OK
+.DS_Store
+Thumbs.db
+
+## Ignore build stuff
+node_modules
+vendor/*
+
+## Ignore .env file
+.env
+.env*
+!conf/.env*
+
+## Ignore composer stuff
+composer.lock
+
+## Keep directories
+!.gitkeep
