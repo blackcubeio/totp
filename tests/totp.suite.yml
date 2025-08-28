@@ -1,0 +1,4 @@
+actor: TotpTester
+modules:
+    enabled:
+        - Asserts
