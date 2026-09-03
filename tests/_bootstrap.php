@@ -1,14 +1,13 @@
 <?php
+
+declare(strict_types=1);
+
 /**
- * _boostrap.php
+ * _bootstrap.php
  *
- * PHP Version 8.3+
- *
- * @author Philippe Gaultier <pgaultier@gmail.com>
- * @copyright 2010-2025 Philippe Gaultier
+ * @copyright 2010-2026 Blackcube - Philippe Gaultier
  * @license https://www.blackcube.io/license
  * @link https://www.blackcube.io
- * @package tests\unit
  */
 
 use Codeception\Configuration;

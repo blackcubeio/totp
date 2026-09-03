@@ -1,18 +1,16 @@
 <?php
+
+declare(strict_types=1);
+
 /**
  * Totp.php
  *
- * PHP Version 8.3+
- *
- * @author Philippe Gaultier <pgaultier@gmail.com>
- * @copyright 2010-2025 Philippe Gaultier
+ * @copyright 2010-2026 Blackcube - Philippe Gaultier
  * @license https://www.blackcube.io/license
  * @link https://www.blackcube.io
  */
 
-declare(strict_types=1);
-
-namespace blackcube\totp;
+namespace Blackcube\Totp;
 
 use InvalidArgumentException;
 
@@ -24,8 +22,7 @@ use InvalidArgumentException;
  * This class provides methods to generate and validate TOTP codes
  * according to RFC 6238 specification.
  *
- * @author Philippe Gaultier <pgaultier@gmail.com>
- * @copyright 2010-2025 Philippe Gaultier
+ * @copyright 2010-2026 Blackcube - Philippe Gaultier
  * @license https://www.blackcube.io/license
  * @link https://www.blackcube.io
  */
