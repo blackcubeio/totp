@@ -1,6 +1,6 @@
 <?php
 
-use blackcube\totp\Totp;
+use Blackcube\Totp\Totp;
 
 class TotpTest extends \Codeception\Test\Unit
 {

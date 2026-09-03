@@ -39,7 +39,7 @@ Totp class allows you to generate and verify TOTP codes.
 Generating TOTP Codes
 
 ``` php
-use blackcube\totp\Totp;
+use Blackcube\Totp\Totp;
 
 $totp = new Totp();
 $registerKey = 'JBSWY3DPEHPK3PXP'; // Base 32 encoded Key used to generate the TOTP codes
@@ -60,7 +60,7 @@ $lostPasswordTotpCode = $totp->generate('lostPassword'); // Generate a TOTP code
 Verifying TOTP Codes
 
 ```php
-use blackcube\totp\Totp;
+use Blackcube\Totp\Totp;
 
 $totpChcecker = new Totp(
     step: 30,
@@ -78,6 +78,27 @@ $isRegisterValid = $totp->verify('register', $registerTotpCode);
 // Verify the TOTP code for lost password service
 $isLostPasswordValid = $totp->verify('lostPassword', $lostPasswordTotpCode);
 ```
+
+TOTP system can be configured with following setters:
+
+- Defining the window for code validity (default is 10)
+- `setWindow(int $window): void` 
+- Defining the time step in seconds (default is 30)
+- `setStep(int $step): void`
+- Defining code length (default is 6)
+- `setLength(int $length): void`
+- Defining the hashing algorithm (default is 'sha1')
+- `setAlgorithm(string $algorithm): void`
+- Defining the key for a specific service
+- `setKey(string $service, string $key): void`
+
+Main methods are:
+- Generating a Base 32 key (160 bits)
+- `generateKey(): string`
+- Generating a TOTP code for a specific service (derivation parameter is used to derive keys)
+- `generate(string $service, ?string $derivationParam = null): string`
+- Validate a TOTP code for a specific service
+- `validate(string $service, string $code, ?string $derivationParam = null): bool`
 
 Contributing
 ------------
