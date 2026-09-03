@@ -29,6 +29,19 @@ use InvalidArgumentException;
 class Totp
 {
     /**
+     * The Base32 alphabet of RFC 4648, without its padding.
+     */
+    private const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+    /**
+     * RFC 4226 section 5.3 defines the truncation for six to eight digits. Ten
+     * is where the modulus still fits a 64-bit integer; past it the code is
+     * computed on a float and loses its last digits.
+     */
+    private const MIN_LENGTH = 6;
+    private const MAX_LENGTH = 10;
+
+    /**
      * Storage for keys indexed by type
      *
      * @var array<string, string>
@@ -38,17 +51,27 @@ class Totp
     /**
      * Constructor
      *
-     * @param int $window Time window for validation in steps (±5 minutes by default)
+     * The window follows RFC 6238 section 5.2: one step of tolerance on each
+     * side, no more. A code that has to stay valid longer is a matter of STEP,
+     * not of window - five minutes is step 300 and window 1, which keeps three
+     * codes alive where a window of ten would keep twenty-one.
+     *
+     * @param int $window Steps accepted before and after the current one
      * @param int $step Time interval in seconds (30s by default)
      * @param int $length TOTP code length (6 digits by default)
      * @param string $algorithm Hash algorithm ('sha1' by default)
+     * @throws InvalidArgumentException When a setting is out of range
      */
     public function __construct(
-        private int $window = 10,
+        private int $window = 1,
         private int $step = 30,
         private int $length = 6,
         private string $algorithm = 'sha1'
     ) {
+        $this->setWindow($window);
+        $this->setStep($step);
+        $this->setLength($length);
+        $this->setAlgorithm($algorithm);
     }
 
     /**
@@ -56,9 +79,19 @@ class Totp
      *
      * @param int $window Number of time steps to check before and after current time
      * @return void
+     * @throws InvalidArgumentException When the window is negative
      */
     public function setWindow(int $window): void
     {
+        if ($window < 0) {
+            // A negative window makes the validation loop empty: validate()
+            // would answer false to every token, including the ones it has
+            // just produced, and lock the account without saying a word.
+            throw new InvalidArgumentException(
+                sprintf('Window cannot be negative, got %d.', $window)
+            );
+        }
+
         $this->window = $window;
     }
 
@@ -67,9 +100,16 @@ class Totp
      *
      * @param int $step Time interval in seconds
      * @return void
+     * @throws InvalidArgumentException When the step is below one second
      */
     public function setStep(int $step): void
     {
+        if ($step < 1) {
+            throw new InvalidArgumentException(
+                sprintf('Step must be at least one second, got %d.', $step)
+            );
+        }
+
         $this->step = $step;
     }
 
@@ -78,9 +118,19 @@ class Totp
      *
      * @param int $length Number of digits in the TOTP code
      * @return void
+     * @throws InvalidArgumentException When the length is out of the usable range
      */
     public function setLength(int $length): void
     {
+        if ($length < self::MIN_LENGTH || $length > self::MAX_LENGTH) {
+            throw new InvalidArgumentException(sprintf(
+                'Length must be between %d and %d digits, got %d.',
+                self::MIN_LENGTH,
+                self::MAX_LENGTH,
+                $length
+            ));
+        }
+
         $this->length = $length;
     }
 
@@ -102,23 +152,45 @@ class Totp
      */
     public function setAlgorithm(string $algorithm): void
     {
+        if (in_array($algorithm, hash_hmac_algos(), true) === false) {
+            throw new InvalidArgumentException(
+                sprintf('Unknown hash algorithm "%s".', $algorithm)
+            );
+        }
+
         $this->algorithm = $algorithm;
     }
 
     /**
      * Set a key for a specific identifier
      *
+     * The key is checked HERE rather than when it is used. A key that holds no
+     * Base32 character at all used to decode to zero byte, and two accounts
+     * carrying such a key produced the SAME code - the empty key. The mistake
+     * has to surface where it is made.
+     *
      * @param string $keyIdentifier Key identifier
      * @param string $key Base32 encoded key
      * @return void
-     * @throws InvalidArgumentException When key is empty
+     * @throws InvalidArgumentException When the key is empty or not Base32
      */
     public function setKey(string $keyIdentifier, string $key): void
     {
-        if (empty($key)) {
-            throw new InvalidArgumentException("Key for identifier '{$keyIdentifier}' cannot be empty");
+        $normalized = $this->normalizeBase32($key);
+
+        if ($normalized === '') {
+            throw new InvalidArgumentException(
+                sprintf("Key for identifier '%s' cannot be empty", $keyIdentifier)
+            );
         }
-        $this->keys[$keyIdentifier] = $key;
+
+        if (preg_match('/^[A-Z2-7]+$/', $normalized) !== 1) {
+            throw new InvalidArgumentException(
+                sprintf("Key for identifier '%s' is not a valid Base32 string", $keyIdentifier)
+            );
+        }
+
+        $this->keys[$keyIdentifier] = $normalized;
     }
 
     /**
@@ -129,10 +201,13 @@ class Totp
      * @return string Generated TOTP code
      * @throws InvalidArgumentException When key type is not found
      */
-    public function generate(string $keyIdentifier, ?string $derivationParam = null): string
-    {
+    public function generate(
+        string $keyIdentifier,
+        ?string $derivationParam = null,
+        ?int $timestamp = null
+    ): string {
         $key = $this->getCompositeKey($keyIdentifier, $derivationParam);
-        $counter = $this->getCounter();
+        $counter = $this->getCounter($timestamp);
         return $this->generateTOTP($key, $counter, $this->length);
     }
 
@@ -145,19 +220,27 @@ class Totp
      * @return bool True if token is valid, false otherwise
      * @throws InvalidArgumentException When key identifier is not found
      */
-    public function validate(string $keyIdentifier, string $token, ?string $derivationParam = null): bool
-    {
+    public function validate(
+        string $keyIdentifier,
+        string $token,
+        ?string $derivationParam = null,
+        ?int $timestamp = null
+    ): bool {
         $key = $this->getCompositeKey($keyIdentifier, $derivationParam);
-        $currentCounter = $this->getCounter();
+        $currentCounter = $this->getCounter($timestamp);
+        $valid = false;
 
-        // Check within the defined time window
+        // The whole window is walked even once a match is found, and each
+        // candidate is compared with hash_equals: neither the answer nor the
+        // time taken to reach it tells where in the window the token sat.
         for ($i = -$this->window; $i <= $this->window; $i++) {
-            $counter = $currentCounter + $i;
-            if ($this->generateTOTP($key, $counter, $this->length) === $token) {
-                return true;
+            $candidate = $this->generateTOTP($key, $currentCounter + $i, $this->length);
+            if (hash_equals($candidate, $token) === true) {
+                $valid = true;
             }
         }
-        return false;
+
+        return $valid;
     }
 
     /**
@@ -181,36 +264,39 @@ class Totp
      */
     private function getCompositeKey(string $keyIdentifier, ?string $derivationParam = null): string
     {
-        if (!isset($this->keys[$keyIdentifier])) {
-            throw new InvalidArgumentException("Key not found for identifier '{$keyIdentifier}'");
+        if (isset($this->keys[$keyIdentifier]) === false) {
+            throw new InvalidArgumentException(
+                sprintf("Key not found for identifier '%s'", $keyIdentifier)
+            );
         }
 
-        $baseKey = $this->keys[$keyIdentifier];
+        $key = $this->decodeBase32($this->keys[$keyIdentifier]);
 
-        // Decode base32 key to buffer
-        $keyBuffer = $this->decodeBase32($baseKey);
-
-        // If no derivation parameter is provided, return the base key
-        if ($derivationParam === null) {
-            return $keyBuffer;
+        if ($derivationParam !== null) {
+            $key = hash_hmac($this->algorithm, $derivationParam, $key, true);
         }
 
-        // Derive a new key using HMAC
-        return hash_hmac($this->algorithm, $derivationParam, $keyBuffer, true);
+        return $key;
     }
 
     /**
      * Get the current time counter
      *
-     * @param int|null $timestamp Optional timestamp in milliseconds
+     * The timestamp is in SECONDS, like time(). It used to be carried in
+     * milliseconds - a leftover of a port from JavaScript, where Date.now()
+     * answers in milliseconds - which made the parameter a trap for any PHP
+     * caller. Nothing outside this class ever passed it.
+     *
+     * @param int|null $timestamp Optional Unix timestamp in seconds
      * @return int Time counter based on step interval
      */
     private function getCounter(?int $timestamp = null): int
     {
         if ($timestamp === null) {
-            $timestamp = time() * 1000; // Convert to milliseconds like Date.now()
+            $timestamp = time();
         }
-        return intval(floor($timestamp / 1000 / $this->step));
+
+        return (int) floor($timestamp / $this->step);
     }
 
     /**
@@ -253,22 +339,24 @@ class Totp
      */
     private function decodeBase32(string $encoded): string
     {
-        $base32Chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+        $normalized = $this->normalizeBase32($encoded);
         $bits = 0;
         $value = 0;
-
-        // Remove spaces and convert to uppercase
-        $encoded = strtoupper(preg_replace('/\s+/', '', $encoded));
-
-        // Result as array
         $result = [];
 
-        for ($i = 0; $i < strlen($encoded); $i++) {
-            $char = $encoded[$i];
-            $charValue = strpos($base32Chars, $char);
+        for ($i = 0; $i < strlen($normalized); $i++) {
+            $charValue = strpos(self::BASE32_ALPHABET, $normalized[$i]);
 
             if ($charValue === false) {
-                continue; // Ignore invalid characters
+                // Skipping the character would silently change the key:
+                // 'JBSWY3DP!!!EHPK3PXP' decoded to the same bytes as
+                // 'JBSWY3DPEHPK3PXP', and a key of nothing but invalid
+                // characters decoded to nothing at all.
+                throw new InvalidArgumentException(sprintf(
+                    'Invalid Base32 character "%s" at offset %d.',
+                    $normalized[$i],
+                    $i
+                ));
             }
 
             $value = ($value << 5) | $charValue;
@@ -284,6 +372,23 @@ class Totp
     }
 
     /**
+     * Bring a Base32 string to its canonical form
+     *
+     * Spaces are what an authenticator app shows to make a key readable, and
+     * '=' is the padding of RFC 4648: both are dropped rather than refused.
+     * What remains has to belong to the alphabet.
+     *
+     * @param string $encoded Base32 string, as typed or as displayed
+     * @return string Uppercase, unspaced, unpadded
+     */
+    private function normalizeBase32(string $encoded): string
+    {
+        $normalized = (string) preg_replace('/\s+/', '', $encoded);
+
+        return rtrim(strtoupper($normalized), '=');
+    }
+
+    /**
      * Encode binary data to Base32 string
      *
      * @param string $buffer Binary data
@@ -291,7 +396,7 @@ class Totp
      */
     private function encodeBase32(string $buffer): string
     {
-        $base32Chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+        $base32Chars = self::BASE32_ALPHABET;
         $result = '';
         $bits = 0;
         $value = 0;
